@@ -95,6 +95,13 @@ func (r *Registry) Load(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
+// Refresh replaces the cache with the database contents without the startup
+// summary log. Callers use it to resync after changes made by other replicas.
+func (r *Registry) Refresh(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := r.load(ctx, pool)
+	return err
+}
+
 func (r *Registry) load(ctx context.Context, pool *pgxpool.Pool) (loadStats, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT resource_type, param_name, param_type, fhirpath_expr, is_custom, ig_source,
