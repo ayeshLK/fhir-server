@@ -120,9 +120,28 @@ func LoadPackage(
 		}
 	}
 
+	slog.Info("loading IG package", "package", source)
+
+	// Fetch package bytes (cache-aware)
+	tgzData, err := fetchPackage(spec, name, version, opts)
+	if err != nil {
+		return nil, fmt.Errorf("fetch %s: %w", source, err)
+	}
+
+	// Parse the tgz
+	pkg, err := parsePackage(tgzData)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", source, err)
+	}
+	if pkg.Meta.FHIRVersion == "" {
+		pkg.Meta.FHIRVersion = "4.0.1"
+	}
+
 	// Serialize concurrent loads of the same package across replicas. The lock
 	// is held until the transaction ends, so a replica that waits on it sees the
-	// winner's committed rows in the re-check below.
+	// winner's committed rows in the re-check below. The package is fetched and
+	// parsed before this point so no pool connection is held during network I/O;
+	// a replica that loses the race may therefore download a package it discards.
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -148,23 +167,6 @@ func LoadPackage(
 			slog.Info("IG package loaded by another replica, skipping", "package", source)
 			return alreadyLoaded(ctx, pool, registry, name, version)
 		}
-	}
-
-	slog.Info("loading IG package", "package", source)
-
-	// Fetch package bytes (cache-aware)
-	tgzData, err := fetchPackage(spec, name, version, opts)
-	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", source, err)
-	}
-
-	// Parse the tgz
-	pkg, err := parsePackage(tgzData)
-	if err != nil {
-		return nil, fmt.Errorf("parse %s: %w", source, err)
-	}
-	if pkg.Meta.FHIRVersion == "" {
-		pkg.Meta.FHIRVersion = "4.0.1"
 	}
 
 	result := &PackageResult{
